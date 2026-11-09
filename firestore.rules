@@ -1,0 +1,50 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    // Tests Collection: тесты лекций
+    // Чтение: открыто для всех (студенты читают вопросы теста, учитель загружает сохранённые тесты).
+    // Создание, изменение, удаление: разрешено любому клиенту, так как по ТЗ у учителя нет логина/авторизации
+    // (любой пользователь в интерфейсе учителя может создать, отредактировать или удалить свой тест).
+    match /tests/{testId} {
+      allow get: if isValidId(testId);
+      allow list: if true;
+      allow create: if isValidId(testId) 
+        && incoming().title is string && incoming().title.size() <= 300
+        && incoming().timerMinutes is number && incoming().timerMinutes > 0
+        && incoming().questions is list && incoming().questions.size() <= 100
+        && incoming().status in ['draft', 'active', 'completed'];
+      allow update: if isValidId(testId);
+      allow delete: if isValidId(testId);
+    }
+
+    // Submissions Collection: результаты сдачи тестов
+    // Чтение: разрешено всем клиентам (учитель просматривает таблицу результатов в реальном времени).
+    // Запись: создание, обновление и удаление для клиентов ПОЛНОСТЬЮ ЗАПРЕЩЕНО.
+    // Запись результатов производит только доверенный сервер через Firebase Admin SDK (в обход правил).
+    match /submissions/{submissionId} {
+      allow get: if isValidId(submissionId);
+      allow list: if true;
+      allow create, update, delete: if false;
+    }
+
+    // Test Keys Collection: правильные ключи ответов
+    // Чтение и запись клиентами: ПОЛНОСТЬЮ ЗАПРЕЩЕНЫ.
+    // Сохранение и проверка ключей производятся исключительно через бэкенд (Firebase Admin SDK).
+    match /test_keys/{testId} {
+      allow read, write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

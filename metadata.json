@@ -1,0 +1,6 @@
+{
+  "name": "QuizLec - Генератор тестов по лекциям",
+  "description": "Веб-платформа для мгновенной генерации тестов по PDF и DOCX лекциям, онлайн-сдачи студентами и сбора результатов в реальном времени.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

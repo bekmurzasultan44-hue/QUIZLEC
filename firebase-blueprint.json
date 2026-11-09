@@ -1,0 +1,46 @@
+{
+  "entities": {
+    "Test": {
+      "title": "Test",
+      "description": "A generated quiz with questions and answer keys created from a lecture",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string", "maxLength": 300 },
+        "timerMinutes": { "type": "number" },
+        "questionCount": { "type": "number" },
+        "questions": { "type": "array" },
+        "createdAt": { "type": "string" },
+        "status": { "type": "string", "enum": ["draft", "active", "completed"] },
+        "code": { "type": "string", "maxLength": 10 }
+      },
+      "required": ["id", "title", "timerMinutes", "questions", "status"]
+    },
+    "Submission": {
+      "title": "Submission",
+      "description": "Student test submission with score and student details",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "testId": { "type": "string", "maxLength": 128 },
+        "studentName": { "type": "string", "maxLength": 200 },
+        "groupName": { "type": "string", "maxLength": 100 },
+        "score": { "type": "number" },
+        "totalQuestions": { "type": "number" },
+        "percentage": { "type": "number" },
+        "submittedAt": { "type": "string" }
+      },
+      "required": ["id", "testId", "studentName", "groupName", "score", "totalQuestions"]
+    }
+  },
+  "firestore": {
+    "/tests/{testId}": {
+      "schema": "Test",
+      "description": "Collection of all created tests"
+    },
+    "/submissions/{submissionId}": {
+      "schema": "Submission",
+      "description": "Collection of all student test submissions"
+    }
+  }
+}

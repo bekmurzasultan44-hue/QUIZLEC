@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { User, Users, Clock, HelpCircle, ArrowRight, BookOpen, AlertCircle } from 'lucide-react';
-import { TestModel } from '../../types';
+import { User, Users, Clock, HelpCircle, ArrowRight, BookOpen, AlertCircle, Lock } from 'lucide-react';
+import { TestModel, isTestExpired, getTestRemainingMinutes } from '../../types';
 
 interface StudentEntryProps {
   test: TestModel | null;
@@ -18,8 +18,15 @@ export const StudentEntry: React.FC<StudentEntryProps> = ({
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
 
+  const isExpired = test ? isTestExpired(test) : false;
+  const remainingMinutes = test ? getTestRemainingMinutes(test) : 0;
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isExpired) {
+      setError('Приём ответов завершён. Сдача теста закрыта.');
+      return;
+    }
     const trimmedName = studentName.trim();
     const trimmedGroup = groupName.trim();
 
@@ -80,21 +87,46 @@ export const StudentEntry: React.FC<StudentEntryProps> = ({
                   <Clock className="w-5 h-5" />
                 </div>
                 <div>
-                  <div className="text-xs text-slate-400">Время на тест</div>
+                  <div className="text-xs text-slate-400">Время студента</div>
                   <div className="text-sm font-bold text-white">{test.timerMinutes} минут</div>
                 </div>
               </div>
             </div>
 
-            {error && (
-              <div className="mb-4 p-3 bg-red-950/60 border border-red-800 rounded-xl text-xs text-red-200 flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
-                <span>{error}</span>
+            {isExpired ? (
+              <div className="p-6 bg-rose-950/40 border border-rose-800/80 rounded-2xl text-center mb-6">
+                <div className="w-12 h-12 rounded-full bg-rose-900/60 text-rose-400 flex items-center justify-center mx-auto mb-3">
+                  <Lock className="w-6 h-6" />
+                </div>
+                <h3 className="text-lg font-bold text-white mb-1.5">Приём ответов завершён</h3>
+                <p className="text-xs text-rose-200/90 leading-relaxed max-w-md mx-auto">
+                  Прошло более 1 часа с момента старта тестирования, или преподаватель завершил приём ответов. 
+                  Новые сдачи заблокированы. Результаты всех уже сдавших студентов сохранены и зафиксированы.
+                </p>
               </div>
-            )}
+            ) : (
+              <>
+                {test.status === 'active' && (
+                  <div className="mb-4 py-2 px-3.5 bg-emerald-950/50 border border-emerald-800/70 rounded-xl text-xs text-emerald-300 flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                      Приём ответов открыт
+                    </span>
+                    <span className="font-semibold text-emerald-200">
+                      Осталось на сдачу: ~{remainingMinutes} мин
+                    </span>
+                  </div>
+                )}
 
-            {/* Registration Form */}
-            <form onSubmit={handleSubmit} className="space-y-4">
+                {error && (
+                  <div className="mb-4 p-3 bg-red-950/60 border border-red-800 rounded-xl text-xs text-red-200 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                    <span>{error}</span>
+                  </div>
+                )}
+
+                {/* Registration Form */}
+                <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
                   Фамилия и Имя (ФИО) *
@@ -144,6 +176,8 @@ export const StudentEntry: React.FC<StudentEntryProps> = ({
               </p>
             </form>
           </>
+        )}
+      </>
         ) : (
           /* Manual Code Entry if opened without testId */
           <div className="text-center">

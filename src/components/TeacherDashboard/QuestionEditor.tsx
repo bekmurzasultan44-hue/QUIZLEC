@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Trash2,
   Plus,
@@ -10,9 +10,12 @@ import {
   AlertCircle,
   HelpCircle,
   Clock,
-  Edit3
+  Edit3,
+  StopCircle,
+  RotateCcw,
+  AlertTriangle
 } from 'lucide-react';
-import { Question, TestModel } from '../../types';
+import { Question, TestModel, isTestExpired, getTestRemainingMinutes } from '../../types';
 import { exportTestToDocx, exportTestToPdf } from '../../lib/exportUtils';
 
 const OPTION_LETTERS = ['А', 'Б', 'В', 'Г', 'Д'];
@@ -22,6 +25,9 @@ interface QuestionEditorProps {
   onUpdateTest: (updated: TestModel) => void;
   onSaveToDatabase: () => Promise<void>;
   onLaunchTest: () => void;
+  onDeleteTest?: (testId: string) => Promise<void>;
+  onStopTest?: (testId: string) => Promise<void>;
+  onResumeTest?: (testId: string) => Promise<void>;
   isSaving: boolean;
   saveSuccessMessage: string | null;
 }
@@ -31,9 +37,19 @@ export const QuestionEditor: React.FC<QuestionEditorProps> = ({
   onUpdateTest,
   onSaveToDatabase,
   onLaunchTest,
+  onDeleteTest,
+  onStopTest,
+  onResumeTest,
   isSaving,
   saveSuccessMessage,
 }) => {
+  const [showDeleteModal, setShowDeleteModal] = useState<boolean>(false);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
+
+  const expired = isTestExpired(test);
+  const remainingMinutes = getTestRemainingMinutes(test);
+  const isLive = test.status === 'active' && !expired;
+
   const handleTitleChange = (newTitle: string) => {
     onUpdateTest({ ...test, title: newTitle });
   };
@@ -90,20 +106,47 @@ export const QuestionEditor: React.FC<QuestionEditorProps> = ({
     });
   };
 
+  const confirmDeleteTest = async () => {
+    if (!onDeleteTest) return;
+    setIsDeleting(true);
+    try {
+      await onDeleteTest(test.id);
+      setShowDeleteModal(false);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Test Header & Actions Bar */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl sticky top-20 z-20 backdrop-blur-md bg-slate-900/95">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div className="flex-1">
-            <div className="flex items-center gap-2 mb-1">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
               <span className="text-xs font-semibold text-sky-400 bg-sky-950/60 border border-sky-800/60 px-2 py-0.5 rounded">
                 Редактор вопросов
               </span>
               <span className="text-xs text-slate-400">
                 Всего вопросов: <strong className="text-white">{test.questions.length}</strong>
               </span>
+
+              {isLive ? (
+                <span className="text-xs font-bold text-emerald-400 bg-emerald-950/80 border border-emerald-800 px-2 py-0.5 rounded flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  Приём активен (осталось {remainingMinutes} мин)
+                </span>
+              ) : expired || test.status === 'completed' ? (
+                <span className="text-xs font-bold text-rose-300 bg-rose-950/80 border border-rose-800 px-2 py-0.5 rounded">
+                  Приём закрыт
+                </span>
+              ) : (
+                <span className="text-xs font-bold text-amber-300 bg-amber-950/80 border border-amber-800 px-2 py-0.5 rounded">
+                  Черновик
+                </span>
+              )}
             </div>
+
             <div className="flex items-center gap-3">
               <input
                 type="text"
@@ -119,7 +162,7 @@ export const QuestionEditor: React.FC<QuestionEditorProps> = ({
           <div className="flex flex-wrap items-center gap-2.5">
             <div className="flex items-center gap-1.5 bg-slate-800 px-3 py-2 rounded-xl border border-slate-700 text-xs text-slate-300">
               <Clock className="w-4 h-4 text-sky-400" />
-              <span>Таймер:</span>
+              <span>Таймер студента:</span>
               <select
                 value={test.timerMinutes}
                 onChange={(e) => handleTimerChange(Number(e.target.value))}
@@ -147,8 +190,41 @@ export const QuestionEditor: React.FC<QuestionEditorProps> = ({
               className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs sm:text-sm rounded-xl transition shadow-lg shadow-emerald-600/25 active:scale-95"
             >
               <Play className="w-4 h-4 fill-white" />
-              <span>Запустить (QR-код)</span>
+              <span>{isLive ? 'QR-код теста' : 'Запустить (QR-код)'}</span>
             </button>
+
+            {isLive && onStopTest && (
+              <button
+                onClick={() => onStopTest(test.id)}
+                className="flex items-center gap-1.5 px-3 py-2 bg-rose-950/70 hover:bg-rose-900 text-rose-300 border border-rose-800 rounded-xl text-xs font-semibold transition"
+                title="Закрыть приём ответов досрочно"
+              >
+                <StopCircle className="w-4 h-4" />
+                <span>Завершить приём</span>
+              </button>
+            )}
+
+            {!isLive && (expired || test.status === 'completed') && onResumeTest && (
+              <button
+                onClick={() => onResumeTest(test.id)}
+                className="flex items-center gap-1.5 px-3 py-2 bg-emerald-950/70 hover:bg-emerald-900 text-emerald-300 border border-emerald-800 rounded-xl text-xs font-semibold transition"
+                title="Открыть приём ответов на 1 час"
+              >
+                <RotateCcw className="w-4 h-4" />
+                <span>Открыть на 1 час</span>
+              </button>
+            )}
+
+            {onDeleteTest && (
+              <button
+                onClick={() => setShowDeleteModal(true)}
+                className="flex items-center gap-1.5 px-3 py-2 bg-rose-950/40 hover:bg-rose-950 text-rose-400 border border-rose-800/60 rounded-xl text-xs font-semibold transition"
+                title="Удалить этот тест"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Удалить тест</span>
+              </button>
+            )}
 
             {/* Export Dropdown / Buttons */}
             <div className="flex items-center gap-1.5">
@@ -158,7 +234,7 @@ export const QuestionEditor: React.FC<QuestionEditorProps> = ({
                 className="flex items-center gap-1.5 px-3 py-2 bg-blue-950/70 hover:bg-blue-900 text-blue-200 border border-blue-800 rounded-xl text-xs font-medium transition"
               >
                 <FileType className="w-4 h-4 text-blue-400" />
-                <span>Word (.docx)</span>
+                <span>Word</span>
               </button>
 
               <button
@@ -188,86 +264,88 @@ export const QuestionEditor: React.FC<QuestionEditorProps> = ({
             key={question.id || qIdx}
             className="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-md transition-all hover:border-slate-700"
           >
-            {/* Question Top Header */}
-            <div className="flex items-start justify-between gap-3 mb-4">
-              <div className="flex items-center gap-2.5">
-                <span className="w-8 h-8 rounded-lg bg-sky-500/20 text-sky-400 border border-sky-500/30 font-bold text-sm flex items-center justify-center shrink-0">
+            {/* Question Header */}
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div className="flex items-center gap-2">
+                <span className="w-7 h-7 rounded-lg bg-sky-500/20 text-sky-400 border border-sky-500/30 font-bold text-sm flex items-center justify-center">
                   {qIdx + 1}
                 </span>
-                <span className="text-xs font-medium text-slate-400">
-                  Вопрос #{qIdx + 1} (5 вариантов, 1 верный)
-                </span>
+                <span className="text-xs text-slate-400 font-medium">Вопрос</span>
               </div>
 
               <button
-                type="button"
                 onClick={() => handleDeleteQuestion(qIdx)}
-                title="Удалить вопрос"
-                className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-950/30 rounded-lg transition"
+                className="text-slate-500 hover:text-red-400 transition p-1.5 rounded-lg hover:bg-slate-800"
+                title="Удалить этот вопрос"
               >
                 <Trash2 className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Question Textarea */}
-            <div className="mb-4">
+            {/* Question Text */}
+            <div className="mb-5">
               <textarea
                 rows={2}
                 value={question.text}
                 onChange={(e) => handleQuestionTextChange(qIdx, e.target.value)}
-                placeholder="Введите текст вопроса..."
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-slate-100 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-sky-500 leading-relaxed"
+                placeholder="Текст вопроса..."
+                className="w-full bg-slate-950/80 border border-slate-800 rounded-xl p-3 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 resize-none font-medium"
               />
             </div>
 
-            {/* 5 Options */}
+            {/* Options (Strictly 5 Options) */}
             <div className="space-y-2.5">
-              <div className="text-xs font-medium text-slate-400 flex items-center justify-between">
-                <span>Варианты ответа (выберите радио-кнопку для правильного):</span>
-                <span className="text-emerald-400 text-[11px] flex items-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> Зеленым отмечен правильный ответ
+              <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+                <span>Варианты ответов (отметьте правильный переключателем):</span>
+                <span className="text-[11px] text-sky-400 font-mono">
+                  Правильный: {OPTION_LETTERS[question.correctOptionIndex ?? 0]}
                 </span>
               </div>
 
-              {question.options.map((opt, optIdx) => {
+              {question.options.map((optText, optIdx) => {
                 const isCorrect = question.correctOptionIndex === optIdx;
+
                 return (
                   <div
                     key={optIdx}
-                    className={`flex items-center gap-3 p-2.5 rounded-xl border transition-all ${
+                    onClick={() => handleCorrectOptionChange(qIdx, optIdx)}
+                    className={`flex items-center gap-3 p-2.5 rounded-xl border transition cursor-pointer ${
                       isCorrect
-                        ? 'bg-emerald-950/20 border-emerald-500/60 ring-1 ring-emerald-500/30'
-                        : 'bg-slate-950/50 border-slate-800/80 hover:border-slate-700'
+                        ? 'bg-emerald-950/50 border-emerald-500/60 shadow-sm'
+                        : 'bg-slate-950/40 border-slate-800/80 hover:border-slate-700'
                     }`}
                   >
                     {/* Radio Button */}
-                    <label className="flex items-center gap-2 cursor-pointer shrink-0 pl-1">
-                      <input
-                        type="radio"
-                        name={`correct-opt-${qIdx}`}
-                        checked={isCorrect}
-                        onChange={() => handleCorrectOptionChange(qIdx, optIdx)}
-                        className="w-4 h-4 text-emerald-600 bg-slate-900 border-slate-700 focus:ring-emerald-500 cursor-pointer"
-                      />
-                      <span
-                        className={`w-6 h-6 rounded text-xs font-bold flex items-center justify-center ${
-                          isCorrect
-                            ? 'bg-emerald-500 text-white font-extrabold'
-                            : 'bg-slate-800 text-slate-400'
-                        }`}
-                      >
-                        {OPTION_LETTERS[optIdx]}
-                      </span>
-                    </label>
+                    <div
+                      className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition ${
+                        isCorrect
+                          ? 'border-emerald-400 bg-emerald-500'
+                          : 'border-slate-600 bg-transparent'
+                      }`}
+                    >
+                      {isCorrect && <div className="w-2 h-2 rounded-full bg-slate-950" />}
+                    </div>
+
+                    {/* Option Letter Badge */}
+                    <span
+                      className={`w-6 h-6 rounded text-xs font-bold flex items-center justify-center shrink-0 ${
+                        isCorrect
+                          ? 'bg-emerald-500 text-slate-950'
+                          : 'bg-slate-800 text-slate-300'
+                      }`}
+                    >
+                      {OPTION_LETTERS[optIdx]}
+                    </span>
 
                     {/* Option Text Input */}
                     <input
                       type="text"
-                      value={opt}
+                      value={optText}
+                      onClick={(e) => e.stopPropagation()}
                       onChange={(e) => handleOptionChange(qIdx, optIdx, e.target.value)}
-                      placeholder={`Вариант ${OPTION_LETTERS[optIdx]}`}
-                      className={`w-full bg-transparent text-sm focus:outline-none px-2 py-1 rounded ${
-                        isCorrect ? 'text-emerald-200 font-medium' : 'text-slate-300'
+                      placeholder={`Вариант ${OPTION_LETTERS[optIdx]}...`}
+                      className={`w-full bg-transparent border-0 text-sm focus:outline-none ${
+                        isCorrect ? 'text-emerald-100 font-semibold' : 'text-slate-200'
                       }`}
                     />
                   </div>
@@ -279,16 +357,54 @@ export const QuestionEditor: React.FC<QuestionEditorProps> = ({
       </div>
 
       {/* Add Question Button */}
-      <div className="flex justify-center pt-2 pb-8">
+      <div className="text-center pt-2 pb-8">
         <button
-          type="button"
           onClick={handleAddQuestion}
-          className="flex items-center gap-2 px-6 py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold rounded-xl border border-dashed border-slate-600 hover:border-sky-500 transition shadow"
+          className="inline-flex items-center gap-2 px-6 py-3 bg-slate-800 hover:bg-slate-700 text-sky-400 font-bold text-sm rounded-2xl border border-slate-700 transition shadow hover:shadow-lg active:scale-95"
         >
-          <Plus className="w-5 h-5 text-sky-400" />
-          <span>Добавить вопрос (5 вариантов)</span>
+          <Plus className="w-5 h-5" />
+          <span>Добавить ещё один вопрос (+1)</span>
         </button>
       </div>
+
+      {/* In-App Delete Modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl relative">
+            <div className="w-12 h-12 rounded-xl bg-rose-950/80 text-rose-400 border border-rose-800/80 flex items-center justify-center mb-4">
+              <AlertTriangle className="w-6 h-6" />
+            </div>
+
+            <h3 className="text-lg font-bold text-white mb-2">
+              Удалить этот тест?
+            </h3>
+            <p className="text-sm text-slate-300 mb-1">
+              Вы действительно хотите удалить <strong className="text-white">«{test.title}»</strong>?
+            </p>
+            <p className="text-xs text-slate-400 mb-6">
+              Тест будет удалён из базы данных Firestore, а также будут стёрты ключи ответов.
+            </p>
+
+            <div className="flex items-center justify-end gap-3">
+              <button
+                onClick={() => setShowDeleteModal(false)}
+                disabled={isDeleting}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium text-xs sm:text-sm rounded-xl transition border border-slate-700"
+              >
+                Отмена
+              </button>
+              <button
+                onClick={confirmDeleteTest}
+                disabled={isDeleting}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs sm:text-sm rounded-xl transition shadow-lg shadow-rose-600/30 flex items-center gap-1.5"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>{isDeleting ? 'Удаление...' : 'Да, удалить'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

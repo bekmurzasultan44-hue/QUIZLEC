@@ -5,11 +5,12 @@ import {
   getDoc,
   getDocs,
   setDoc,
+  updateDoc,
   deleteDoc,
   onSnapshot
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from './lib/firebase';
-import { Question, TestModel, SubmissionModel } from './types';
+import { Question, TestModel, SubmissionModel, isTestExpired } from './types';
 import { Navbar } from './components/Navbar';
 import { LectureUploader } from './components/TeacherDashboard/LectureUploader';
 import { QuestionEditor } from './components/TeacherDashboard/QuestionEditor';
@@ -90,7 +91,13 @@ export default function App() {
       const snap = await getDocs(collection(db, 'tests'));
       const list: TestModel[] = [];
       snap.forEach((d) => {
-        list.push({ id: d.id, ...(d.data() as Omit<TestModel, 'id'>) });
+        const item = { id: d.id, ...(d.data() as Omit<TestModel, 'id'>) };
+        // Auto-expire active tests after 1 hour (60 minutes)
+        if (item.status === 'active' && isTestExpired(item)) {
+          item.status = 'completed';
+          updateDoc(doc(db, 'tests', item.id), { status: 'completed' }).catch(() => {});
+        }
+        list.push(item);
       });
       // Sort newest first
       list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -181,13 +188,19 @@ export default function App() {
     }
   };
 
-  // Teacher: Launch test
+  // Teacher: Launch test (activates for 1 hour)
   const handleLaunchTest = async (testToLaunch?: TestModel) => {
     const target = testToLaunch || activeTest;
     if (!target) return;
 
     try {
-      const updated = { ...target, status: 'active' as const };
+      const now = new Date().toISOString();
+      const updated: TestModel = {
+        ...target,
+        status: 'active',
+        startedAt: target.startedAt && !isTestExpired(target) ? target.startedAt : now,
+        updatedAt: now,
+      };
       await setDoc(doc(db, 'tests', target.id), updated);
 
       // Sync keys to server
@@ -212,12 +225,58 @@ export default function App() {
     }
   };
 
-  // Teacher: Delete test
+  // Teacher: Stop test (closes submissions immediately)
+  const handleStopTest = async (testId: string) => {
+    try {
+      const now = new Date().toISOString();
+      await updateDoc(doc(db, 'tests', testId), {
+        status: 'completed',
+        updatedAt: now,
+      });
+
+      if (activeTest?.id === testId) {
+        setActiveTest((prev) => (prev ? { ...prev, status: 'completed', updatedAt: now } : null));
+      }
+      loadSavedTests();
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `tests/${testId}`);
+    }
+  };
+
+  // Teacher: Re-open / Resume test for 1 hour
+  const handleResumeTest = async (testId: string) => {
+    try {
+      const now = new Date().toISOString();
+      await updateDoc(doc(db, 'tests', testId), {
+        status: 'active',
+        startedAt: now,
+        updatedAt: now,
+      });
+
+      if (activeTest?.id === testId) {
+        setActiveTest((prev) => (prev ? { ...prev, status: 'active', startedAt: now, updatedAt: now } : null));
+      }
+      loadSavedTests();
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `tests/${testId}`);
+    }
+  };
+
+  // Teacher: Delete test (works on any test: draft, active, completed)
   const handleDeleteTest = async (testId: string) => {
     try {
       await deleteDoc(doc(db, 'tests', testId));
+
+      // Clean server keys vault
+      fetch('/api/delete-test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ testId }),
+      }).catch(() => {});
+
       if (activeTest?.id === testId) {
         setActiveTest(null);
+        localStorage.removeItem('quizlec_teacher_active_test_id');
       }
       loadSavedTests();
     } catch (err) {
@@ -314,6 +373,9 @@ export default function App() {
                 onUpdateTest={setActiveTest}
                 onSaveToDatabase={handleSaveToDatabase}
                 onLaunchTest={() => handleLaunchTest()}
+                onDeleteTest={handleDeleteTest}
+                onStopTest={handleStopTest}
+                onResumeTest={handleResumeTest}
                 isSaving={isSaving}
                 saveSuccessMessage={saveSuccessMessage}
               />
@@ -339,6 +401,8 @@ export default function App() {
               setCurrentTab('teacher-results');
             }}
             onDeleteTest={handleDeleteTest}
+            onStopTest={handleStopTest}
+            onResumeTest={handleResumeTest}
             onCreateNew={() => setCurrentTab('teacher-create')}
           />
         )}
@@ -407,6 +471,7 @@ export default function App() {
             setShowLaunchModal(false);
             setCurrentTab('teacher-results');
           }}
+          onStopTest={handleStopTest}
         />
       )}
 

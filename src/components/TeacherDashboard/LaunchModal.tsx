@@ -9,20 +9,24 @@ import {
   ExternalLink,
   Users,
   BarChart3,
-  Sparkles
+  Sparkles,
+  StopCircle,
+  Clock
 } from 'lucide-react';
-import { TestModel } from '../../types';
+import { TestModel, isTestExpired, getTestRemainingMinutes } from '../../types';
 
 interface LaunchModalProps {
   test: TestModel;
   onClose: () => void;
   onViewResults: () => void;
+  onStopTest?: (testId: string) => Promise<void>;
 }
 
 export const LaunchModal: React.FC<LaunchModalProps> = ({
   test,
   onClose,
   onViewResults,
+  onStopTest,
 }) => {
   const [copied, setCopied] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -69,10 +73,16 @@ export const LaunchModal: React.FC<LaunchModalProps> = ({
           </button>
         </div>
 
-        {/* Title */}
-        <div className="inline-flex items-center gap-2 bg-emerald-950/80 border border-emerald-700/70 text-emerald-400 px-3.5 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider mb-3">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-          Тест запущен • Режим для проектора
+        {/* Title & Expiration Badge */}
+        <div className="flex flex-wrap items-center justify-center gap-2 mb-3">
+          <div className="inline-flex items-center gap-2 bg-emerald-950/80 border border-emerald-700/70 text-emerald-400 px-3.5 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            Тест запущен • Режим для проектора
+          </div>
+          <div className="inline-flex items-center gap-1.5 bg-slate-800/90 border border-slate-700 text-sky-300 px-3 py-1.5 rounded-full text-xs font-semibold">
+            <Clock className="w-3.5 h-3.5 text-sky-400" />
+            <span>Приём активен: ~{getTestRemainingMinutes(test)} мин</span>
+          </div>
         </div>
 
         <h2 className="text-2xl sm:text-3xl font-extrabold text-white mb-2 tracking-tight">
@@ -110,7 +120,7 @@ export const LaunchModal: React.FC<LaunchModalProps> = ({
             </div>
             <div className="text-right text-xs text-slate-400">
               <div>Вопросов: <strong className="text-white">{test.questions.length}</strong></div>
-              <div>Время: <strong className="text-white">{test.timerMinutes} мин</strong></div>
+              <div>Время студента: <strong className="text-white">{test.timerMinutes} мин</strong></div>
             </div>
           </div>
 
@@ -145,7 +155,7 @@ export const LaunchModal: React.FC<LaunchModalProps> = ({
           </div>
         </div>
 
-        {/* Bottom Switch to Live Results */}
+        {/* Bottom Switch to Live Results & Stop Action */}
         <div className="mt-8 pt-6 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-center gap-3">
           <button
             onClick={() => {
@@ -157,6 +167,19 @@ export const LaunchModal: React.FC<LaunchModalProps> = ({
             <BarChart3 className="w-4 h-4" />
             <span>Перейти к таблице результатов (Online)</span>
           </button>
+
+          {onStopTest && (
+            <button
+              onClick={async () => {
+                await onStopTest(test.id);
+                onClose();
+              }}
+              className="w-full sm:w-auto px-4 py-3 bg-rose-950/70 hover:bg-rose-900 text-rose-300 border border-rose-800 font-semibold text-xs rounded-xl transition flex items-center justify-center gap-1.5"
+            >
+              <StopCircle className="w-3.5 h-3.5" />
+              <span>Завершить приём</span>
+            </button>
+          )}
 
           <a
             href={studentUrl}

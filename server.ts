@@ -188,6 +188,52 @@ async function startServer() {
         return res.status(404).json({ error: 'Ключи для этого теста не найдены на сервере.' });
       }
 
+      // Check test expiration & lock submissions (1 hour limit or completed status)
+      const dbAdmin = getAdminDb(cfg);
+      const cleanName = String(studentName).trim();
+      const cleanGroup = String(groupName).trim();
+
+      if (dbAdmin) {
+        try {
+          const testSnap = await dbAdmin.collection('tests').doc(testId).get();
+          if (testSnap.exists) {
+            const testData = testSnap.data() || {};
+            const isCompleted = testData.status === 'completed';
+            const baseTime = testData.startedAt ? new Date(testData.startedAt).getTime() : new Date(testData.createdAt).getTime();
+            const ONE_HOUR_MS = 60 * 60 * 1000;
+            const isExpired = baseTime && (Date.now() - baseTime > ONE_HOUR_MS);
+
+            if (isCompleted || isExpired) {
+              if (isExpired && testData.status !== 'completed') {
+                dbAdmin.collection('tests').doc(testId).update({ status: 'completed' }).catch(() => {});
+              }
+              return res.status(403).json({
+                error: 'Приём ответов на этот тест завершён (прошло более 1 часа или тест закрыт преподавателем). Сдача заблокирована.',
+              });
+            }
+          }
+
+          // Lock data of students who already submitted ("данные кто сдал не менялись")
+          const existingSubSnap = await dbAdmin.collection('submissions')
+            .where('testId', '==', testId)
+            .where('studentName', '==', cleanName)
+            .where('groupName', '==', cleanGroup)
+            .limit(1)
+            .get();
+
+          if (!existingSubSnap.empty) {
+            const existingSub = existingSubSnap.docs[0].data();
+            return res.status(200).json({
+              success: true,
+              submission: existingSub,
+              message: 'Тест уже был сдан ранее. Ваши первоначальные результаты зафиксированы.',
+            });
+          }
+        } catch (checkErr: any) {
+          console.warn('[Server verify] Status check warning:', checkErr.message);
+        }
+      }
+
       // Calculate score on server
       let score = 0;
       const totalQuestions = correctKeys.length;
@@ -214,7 +260,6 @@ async function startServer() {
       };
 
       // Server creates the document directly in Firestore via Firebase Admin SDK
-      const dbAdmin = getAdminDb(cfg);
       let writtenToDb = false;
 
       if (dbAdmin) {
@@ -278,7 +323,25 @@ async function startServer() {
     }
   });
 
-  // Endpoint 3: Generate test from lecture using Gemini Flash
+  // Endpoint 3: Delete test keys from vault and Firestore
+  app.post('/api/delete-test', async (req, res) => {
+    try {
+      const { testId } = req.body || {};
+      if (!testId) return res.status(400).json({ error: 'testId is required' });
+
+      testKeysVault.delete(testId);
+      const cfg = (await import('./firebase-applet-config.json', { with: { type: 'json' } })).default;
+      const dbAdmin = getAdminDb(cfg);
+      if (dbAdmin) {
+        await dbAdmin.collection('test_keys').doc(testId).delete().catch(() => {});
+      }
+      return res.status(200).json({ success: true });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Endpoint 4: Generate test from lecture using Gemini Flash
   app.post('/api/generate-test', async (req, res) => {
     try {
       const { lectureText, questionCount = 15 } = req.body || {};
